@@ -83,7 +83,7 @@ ioctl_write_int_bad!(vt_activate, 0x5606);
 ioctl_write_int_bad!(vt_waitactive, 0x5607);
 fn switch_tty(num: i32) -> Result<()> {
     if unsafe{ libc::geteuid() } != 0 {
-        log_info("Running as a non-root user, ignoring TTY changes")?;
+        log_info("Running as a non-root user, ignoring TTY changes");
         return Ok(());
     }
 
@@ -103,15 +103,13 @@ fn push2dogd(stream: impl Read, name: String, priority: LogPriority) {
         if buf.is_empty() {
             continue;
         }
-        if post_log(&buf, &name, priority).is_err() {
-            break;
-        }
+        post_log(&buf, &name, priority);
         buf.clear();
     }
 }
 
 fn run_entry(e: &MenuEntry) -> Result<()> {
-    log_debug(format!("Running {}", &e.name))?;
+    log_debug(format!("Running {}", &e.name));
     let stdin;
     let stdout;
     let stderr;
@@ -142,25 +140,25 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
         let name = name.clone();
         thread::spawn(move || push2dogd(child_stdout, name, LogPriority::Info));
     } else {
-        log_error("Failed to get stdout handle, logs are incomplete")?;
+        log_error("Failed to get stdout handle, logs are incomplete");
     }
 
     if let Some(child_stderr) = child.stderr.take() {
         let name = name.clone();
         thread::spawn(move || push2dogd(child_stderr, name, LogPriority::Error));
     } else {
-        log_error("Failed to get stderr handle, logs are incomplete")?;
+        log_error("Failed to get stderr handle, logs are incomplete");
     }
     
     let result = child.wait().context("Failed to wait for program to exit")?;
     if let Some(code) = result.code() {
         if code != 0 {
-            log_critical(format!("Application {} returned with erroneous code {}!\nCheck logs on data partition", name, code))?;
+            log_critical(format!("Application {} returned with erroneous code {}!\nCheck logs on data partition", name, code));
         }
     }
 
     if let Some(sig) = result.signal() {
-        log_critical(format!("Application {} returned due to {:?}!\nCheck logs on data partition", name, Signal::try_from(sig)))?;
+        log_critical(format!("Application {} returned due to {:?}!\nCheck logs on data partition", name, Signal::try_from(sig)));
     }
 
     switch_tty(1).context("Failed to switch back to tty1")?;
@@ -211,7 +209,7 @@ fn main() {
     };
 
     let layout = menu_layout.mk_sgui_layout();
-    log_debug("Smenu starting up").unwrap();
+    log_debug("Smenu starting up");
     let mut gui = Gui::new(layout);
     let state = loop {
         let ev = gui.get_ev();
@@ -227,7 +225,7 @@ fn main() {
                             .map(|e| e.to_string().to_string())
                             .map(|v| v + "\n")
                             .collect::<String>();
-                        log_critical(format!("Failed to run entry, due to:\n{}", msg)).unwrap();
+                        log_critical(format!("Failed to run entry, due to:\n{}", msg));
                     };
                 }
             },
