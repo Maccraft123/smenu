@@ -7,7 +7,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.66"
-nix = { version = "0.26.1", features = ["ioctl"] }
-serde = { version = "1.0.150", features = ["serde_derive"] }
+dogd = { git = "https://github.com/R-ARM/dogd.git", version = "0.1.0" }
+libc = "0.2.138"
+nix = { version = "0.26.1", features = ["ioctl", "signal"], default-features = false }
+serde = { version = "1.0", features = ["serde_derive"] }
 sgui = { git = "https://github.com/R-ARM/sgui.git", version = "0.1.0" }
 toml = "0.5.10"

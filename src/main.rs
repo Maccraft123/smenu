@@ -2,15 +2,27 @@ use sgui::layout::Layout;
 use sgui::Gui;
 use sgui::GuiEvent;
 
-use nix::ioctl_write_int_bad;
+use nix::{
+    ioctl_write_int_bad,
+    sys::signal::Signal,
+};
 use serde::{Serialize, Deserialize};
-use anyhow::Result;
+use anyhow::{Result, Context};
 use std::{
     process::{Command, Stdio},
     path::PathBuf,
-    fs::OpenOptions,
-    os::unix::io::AsRawFd,
+    fs::{File, OpenOptions},
+    thread,
+    io::{
+        Read, BufReader, BufRead,
+    },
+    os::unix::{
+        io::AsRawFd,
+        process::ExitStatusExt,
+    },
 };
+
+use libdogd::{log_debug, log_info, log_error, log_critical, LogPriority, post_log};
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Category {
@@ -52,7 +64,7 @@ impl MenuLayout {
             }
         }
 
-        let mut layout = Layout::builder();
+        let layout = Layout::builder();
         let mut tools_tab = layout.tab("System Tools");
         for (name, id) in tools {
             tools_tab = tools_tab.line().button_stateless(name, id as u128).endl();
@@ -70,6 +82,11 @@ impl MenuLayout {
 ioctl_write_int_bad!(vt_activate, 0x5606);
 ioctl_write_int_bad!(vt_waitactive, 0x5607);
 fn switch_tty(num: i32) -> Result<()> {
+    if unsafe{ libc::geteuid() } != 0 {
+        log_info("Running as a non-root user, ignoring TTY changes")?;
+        return Ok(());
+    }
+
     let file = OpenOptions::new().read(true).write(true).open("/dev/console")
         .or_else(|_| OpenOptions::new().read(true).write(true).open("/dev/tty"))
         .or_else(|_| OpenOptions::new().read(true).write(true).open("/dev/tty0"))?;
@@ -78,25 +95,73 @@ fn switch_tty(num: i32) -> Result<()> {
     Ok(())
 }
 
+fn push2dogd(stream: impl Read, name: String, priority: LogPriority) {
+    let mut writer = BufReader::new(stream);
+    let mut buf = String::new();
+
+    while let Ok(_) = writer.read_line(&mut buf) {
+        if buf.is_empty() {
+            continue;
+        }
+        if post_log(&buf, &name, priority).is_err() {
+            break;
+        }
+        buf.clear();
+    }
+}
+
 fn run_entry(e: &MenuEntry) -> Result<()> {
-    eprintln!("Running {}", &e.name);
+    log_debug(format!("Running {}", &e.name))?;
+    let stdin;
+    let stdout;
+    let stderr;
     if e.uses_wayland {
-        switch_tty(2)?;
+        switch_tty(2).context("Failed switch to tty2")?;
+        stdin = Stdio::null();
+        stdout = Stdio::piped();
+        stderr = Stdio::piped();
     } else {
         switch_tty(3)?;
+        stdin = File::open("/dev/tty3").context("Failed to open tty3 for reading")?.into();
+        stdout = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
+        stderr = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
     }
 
-    let result = Command::new(&e.executable)
+    let mut child = Command::new(&e.executable)
         .args(&e.args)
         .envs(e.env.clone())
-        .stdin(Stdio::null())
-        .output()?;
+        .stdin(stdin)
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn()
+        .context("Failed to spawn the program")?;
 
-    if !result.status.success() {
-        todo!("Handling failures");
+    if let Some(child_stdout) = child.stdout.take() {
+        let name = e.name.clone();
+        thread::spawn(move || push2dogd(child_stdout, name, LogPriority::Info));
+    } else {
+        log_error("Failed to get stdout handle, logs are incomplete")?;
     }
 
-    switch_tty(1)?;
+    if let Some(child_stderr) = child.stderr.take() {
+        let name = e.name.clone();
+        thread::spawn(move || push2dogd(child_stderr, name, LogPriority::Error));
+    } else {
+        log_error("Failed to get stderr handle, logs are incomplete")?;
+    }
+    
+    let result = child.wait().context("Failed to wait for program to exit")?;
+    if let Some(code) = result.code() {
+        if code != 0 {
+            log_critical(format!("Application {} returned with erroneous code {}!\nCheck logs on data partition", &e.name, code))?;
+        }
+    }
+
+    if let Some(sig) = result.signal() {
+        log_critical(format!("Application {} returned due to {:?}!\nCheck logs on data partition", &e.name, Signal::try_from(sig)))?;
+    }
+
+    switch_tty(1).context("Failed to switch back to tty1")?;
     Ok(())
 }
 
@@ -106,7 +171,6 @@ fn save_config(l: MenuLayout) {
 }
 
 fn main() {
-    let ssh = false;
     let menu_layout = MenuLayout {
         items: vec![
             MenuEntry {
@@ -145,7 +209,7 @@ fn main() {
     };
 
     let layout = menu_layout.mk_sgui_layout();
-    eprintln!("{:#?}", &layout);
+    log_debug("Smenu starting up").unwrap();
     let mut gui = Gui::new(layout);
     let state = loop {
         let ev = gui.get_ev();
@@ -156,12 +220,16 @@ fn main() {
             },
             GuiEvent::StatelessButtonPress(_, id) => {
                 if let Some(entry) = menu_layout.items.get(id as usize) {
-                    run_entry(&entry);
+                    if let Err(e) = run_entry(&entry) {
+                        let msg = e.chain()
+                            .map(|e| e.to_string().to_string())
+                            .map(|v| v + "\n")
+                            .collect::<String>();
+                        log_critical(format!("Failed to run entry, due to:\n{}", msg)).unwrap();
+                    };
                 }
             },
-            _ => {
-                eprintln!("{:#?}", &ev);
-            }
+            _ => (),
         }
     };
 
