@@ -136,15 +136,17 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
         .spawn()
         .context("Failed to spawn the program")?;
 
+    let name = e.executable.into_iter().last().unwrap().to_string_lossy().to_string();
+
     if let Some(child_stdout) = child.stdout.take() {
-        let name = e.name.clone();
+        let name = name.clone();
         thread::spawn(move || push2dogd(child_stdout, name, LogPriority::Info));
     } else {
         log_error("Failed to get stdout handle, logs are incomplete")?;
     }
 
     if let Some(child_stderr) = child.stderr.take() {
-        let name = e.name.clone();
+        let name = name.clone();
         thread::spawn(move || push2dogd(child_stderr, name, LogPriority::Error));
     } else {
         log_error("Failed to get stderr handle, logs are incomplete")?;
@@ -153,12 +155,12 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
     let result = child.wait().context("Failed to wait for program to exit")?;
     if let Some(code) = result.code() {
         if code != 0 {
-            log_critical(format!("Application {} returned with erroneous code {}!\nCheck logs on data partition", &e.name, code))?;
+            log_critical(format!("Application {} returned with erroneous code {}!\nCheck logs on data partition", name, code))?;
         }
     }
 
     if let Some(sig) = result.signal() {
-        log_critical(format!("Application {} returned due to {:?}!\nCheck logs on data partition", &e.name, Signal::try_from(sig)))?;
+        log_critical(format!("Application {} returned due to {:?}!\nCheck logs on data partition", name, Signal::try_from(sig)))?;
     }
 
     switch_tty(1).context("Failed to switch back to tty1")?;
