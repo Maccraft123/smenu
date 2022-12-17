@@ -15,6 +15,7 @@ use std::{
     thread,
     io::{
         Read, BufReader, BufRead,
+        Write,
     },
     os::unix::{
         io::AsRawFd,
@@ -81,7 +82,7 @@ impl MenuLayout {
 
 ioctl_write_int_bad!(vt_activate, 0x5606);
 ioctl_write_int_bad!(vt_waitactive, 0x5607);
-fn switch_tty(num: i32) -> Result<()> {
+fn switch_tty(num: i32, clear: bool) -> Result<()> {
     if unsafe{ libc::geteuid() } != 0 {
         log_info("Running as a non-root user, ignoring TTY changes");
         return Ok(());
@@ -91,6 +92,10 @@ fn switch_tty(num: i32) -> Result<()> {
         .or_else(|_| OpenOptions::new().read(true).write(true).open("/dev/tty0"))?;
     unsafe { vt_activate(file.as_raw_fd(), num) }?;
     unsafe { vt_waitactive(file.as_raw_fd(), num) }?;
+    if clear {
+        let mut tty = OpenOptions::new().read(false).write(true).open(format!("/dev/tty{}", num))?;
+        tty.write_all(b"\x1B[2J\x1B[1;1H")?;
+    }
     Ok(())
 }
 
@@ -114,12 +119,12 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
     let stdout;
     let stderr;
     if e.uses_wayland {
-        switch_tty(2).context("Failed switch to tty2")?;
+        switch_tty(2, false).context("Failed switch to tty2")?;
         stdin = Stdio::null();
         stdout = Stdio::piped();
         stderr = Stdio::piped();
     } else {
-        switch_tty(3).context("Failed to switch to tty3")?;
+        switch_tty(3, true).context("Failed to switch to tty3")?;
         stdin = File::open("/dev/tty3").context("Failed to open tty3 for reading")?.into();
         stdout = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
         stderr = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
@@ -162,7 +167,7 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
         log_critical(format!("Application {} returned due to {:?}!\nCheck logs on data partition", name, Signal::try_from(sig)));
     }
 
-    switch_tty(1).context("Failed to switch back to tty1")?;
+    switch_tty(1, false).context("Failed to switch back to tty1")?;
     Ok(())
 }
 
@@ -186,7 +191,7 @@ fn main() {
                 name: "Power Off".to_string(),
                 category: Category::Tools,
                 uses_wayland: false,
-                executable: PathBuf::from("/smenu/power_off"),
+                executable: PathBuf::from("/sbin/poweroff"),
                 args: vec![],
                 env: vec![],
             },
@@ -199,10 +204,18 @@ fn main() {
                 env: vec![],
             },
             MenuEntry {
-                name: "Open Weston Terminal".to_string(),
-                category: Category::Programs,
-                uses_wayland: true,
-                executable: PathBuf::from("/usr/bin/weston-terminal"),
+                name: "Open shell".to_string(),
+                category: Category::Tools,
+                uses_wayland: false,
+                executable: PathBuf::from("/usr/bin/ash"),
+                args: vec![],
+                env: vec![],
+            },
+            MenuEntry {
+                name: "Launch kmscube".to_string(),
+                category: Category::Tools,
+                uses_wayland: false,
+                executable: PathBuf::from("/usr/bin/kmscube"),
                 args: vec![],
                 env: vec![],
             },
