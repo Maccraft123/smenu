@@ -87,8 +87,7 @@ fn switch_tty(num: i32) -> Result<()> {
         return Ok(());
     }
 
-    let file = OpenOptions::new().read(true).write(true).open("/dev/console")
-        .or_else(|_| OpenOptions::new().read(true).write(true).open("/dev/tty"))
+    let file = OpenOptions::new().read(true).write(true).open("/dev/tty")
         .or_else(|_| OpenOptions::new().read(true).write(true).open("/dev/tty0"))?;
     unsafe { vt_activate(file.as_raw_fd(), num) }?;
     unsafe { vt_waitactive(file.as_raw_fd(), num) }?;
@@ -119,7 +118,7 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
         stdout = Stdio::piped();
         stderr = Stdio::piped();
     } else {
-        switch_tty(3)?;
+        switch_tty(3).context("Failed to switch to tty3")?;
         stdin = File::open("/dev/tty3").context("Failed to open tty3 for reading")?.into();
         stdout = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
         stderr = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
