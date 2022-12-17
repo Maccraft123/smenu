@@ -111,19 +111,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dogd"
-version = "0.1.0"
-source = "git+https://github.com/R-ARM/dogd.git#3cea3dae0c61fb7cf28f3301903c9aecb275593b"
-dependencies = [
- "anyhow",
- "colored",
- "crossbeam-channel",
- "libdogd",
- "serde",
- "toml",
-]
-
-[[package]]
 name = "evdev"
 version = "0.11.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -381,8 +368,8 @@ name = "smenu"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "dogd",
  "libc",
+ "libdogd",
  "nix 0.26.1",
  "serde",
  "sgui",
