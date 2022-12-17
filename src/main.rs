@@ -109,6 +109,7 @@ fn push2dogd(stream: impl Read, name: String, priority: LogPriority) {
 
 fn run_entry(e: &MenuEntry) -> Result<()> {
     log_debug(format!("Running {}", &e.name));
+    let mut envs = e.env.clone();
     let stdin;
     let stdout;
     let stderr;
@@ -122,6 +123,7 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
         stdin = File::open("/dev/tty3").context("Failed to open tty3 for reading")?.into();
         stdout = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
         stderr = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
+        envs.push(("TERM".to_string(), "linux".to_string()));
     }
 
     let mut child = Command::new(&e.executable)
@@ -164,8 +166,8 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
     Ok(())
 }
 
-fn save_config(l: MenuLayout) {
-    let conf = toml::to_string(&l).expect("Failed to serialize config");
+fn save_config(l: &MenuLayout) {
+    let conf = toml::to_string(l).expect("Failed to serialize config");
     eprintln!("{}", conf);
 }
 
@@ -219,19 +221,27 @@ fn main() {
             },
             GuiEvent::StatelessButtonPress(_, id) => {
                 if let Some(entry) = menu_layout.items.get(id as usize) {
-                    if let Err(e) = run_entry(&entry) {
-                        let msg = e.chain()
-                            .map(|e| e.to_string().to_string())
-                            .map(|v| v + "\n")
-                            .collect::<String>();
-                        log_critical(format!("Failed to run entry, due to:\n{}", msg));
-                    };
+                    gui.set_ignore_hid(true);
+                    thread::scope(|s| {
+                        let h = s.spawn(move || {if let Err(e) = run_entry(&entry) {
+                            let msg = e.chain()
+                                .map(|e| e.to_string().to_string())
+                                .map(|v| v + "\n")
+                                .collect::<String>();
+                            log_critical(format!("Failed to run entry, due to:\n{}", msg));
+                        }});
+                        while !h.is_finished() {
+                            let _ = gui.get_ev();
+                        }
+
+                    });
+                    gui.set_ignore_hid(false);
                 }
             },
             _ => (),
         }
     };
 
-    save_config(menu_layout);
+    save_config(&menu_layout);
     println!("{:#?}", state);
 }

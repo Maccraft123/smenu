@@ -320,7 +320,7 @@ dependencies = [
 [[package]]
 name = "sgui"
 version = "0.1.0"
-source = "git+https://github.com/R-ARM/sgui.git#34d3be1193652ce9b6fea10ebf7597bf6d14b49a"
+source = "git+https://github.com/R-ARM/sgui.git#5a8c3f4e38d6dc12f446ef13c40b9d7bf5194486"
 dependencies = [
  "anyhow",
  "crossterm",
