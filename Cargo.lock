@@ -161,7 +161,7 @@ checksum = "db6d7e329c562c5dfab7a46a2afabc8b987ab9a4834c9d1ca04dc54c1546cef8"
 [[package]]
 name = "libdogd"
 version = "0.1.0"
-source = "git+https://github.com/R-ARM/dogd.git#3cea3dae0c61fb7cf28f3301903c9aecb275593b"
+source = "git+https://github.com/R-ARM/dogd.git#de3ba49a791cce2e9b99c0e00632cb18a3bed495"
 dependencies = [
  "anyhow",
  "colored",

@@ -23,7 +23,7 @@ use std::{
     },
 };
 
-use libdogd::{log_debug, log_info, log_error, log_critical, LogPriority, post_log};
+use libdogd::{log_debug, log_info, log_error, log_critical, LogPriority, post_log, log_rust_error};
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Category {
@@ -237,11 +237,7 @@ fn main() {
                     gui.set_ignore_hid(true);
                     thread::scope(|s| {
                         let h = s.spawn(move || {if let Err(e) = run_entry(&entry) {
-                            let msg = e.chain()
-                                .map(|e| e.to_string().to_string())
-                                .map(|v| v + "\n")
-                                .collect::<String>();
-                            log_critical(format!("Failed to run entry, due to:\n{}", msg));
+                            log_rust_error(&*e, "Failed to run menu entry", LogPriority::Error);
                         }});
                         while !h.is_finished() {
                             let _ = gui.get_ev();
