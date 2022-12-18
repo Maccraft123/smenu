@@ -38,6 +38,15 @@ executable = "/usr/bin/kmscube"
 args = []
 env = []
 
+
+[[item]]
+name = "Weston flower demo"
+category = "Tools"
+uses_wayland = true
+executable = "/usr/bin/weston-flower"
+args = []
+env = []
+
 [[emulator]]
 executable = "/usr/bin/mednafen"
 args = []

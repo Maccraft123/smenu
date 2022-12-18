@@ -9,6 +9,7 @@ use nix::{
 use serde::{Serialize, Deserialize};
 use anyhow::{anyhow, Result, Context};
 use std::{
+    env,
     process::{Command, Stdio},
     fs::{self, File, OpenOptions},
     thread,
@@ -203,6 +204,11 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
         stdin = Stdio::null();
         stdout = Stdio::piped();
         stderr = Stdio::piped();
+        if env::var("XDG_RUNTIME_DIR").is_err() {
+            envs.push(("XDG_RUNTIME_DIR".to_string(), "/xdg".to_string()));
+        } else {
+            log_info("Detected XDG_RUNTIME_DIR env var present, /not/ setting it");
+        }
     } else {
         switch_tty(3, true).context("Failed to switch to tty3")?;
         stdin = File::open("/dev/tty3").context("Failed to open tty3 for reading")?.into();
