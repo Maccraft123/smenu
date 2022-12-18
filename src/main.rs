@@ -7,7 +7,7 @@ use nix::{
     sys::signal::Signal,
 };
 use serde::{Serialize, Deserialize};
-use anyhow::{Result, Context};
+use anyhow::{anyhow, Result, Context};
 use std::{
     process::{Command, Stdio},
     fs::{self, File, OpenOptions},
@@ -259,17 +259,30 @@ fn save_config(l: &MenuLayout, p: &Path) -> Result<()> {
 }
 
 fn load_config(p: &Path) -> Result<MenuLayout> {
-    let mut conf_file = File::open(p).context("Failed to open config file")?;
-    let mut buf = String::new();
-    conf_file.read_to_string(&mut buf).context("Failed to read config file")?;
-    let config = toml::from_str(&buf).context("Failed to deserialize config file")?;
+    if !p.exists() {
+        return Err(anyhow!("Missing config file, using default"));
+    }
+    let conf = fs::read_to_string(p).context("Failed to read config file")?;
+    let config = toml::from_str(&conf).context("Failed to deserialize config file")?;
     Ok(config)
 }
 
+fn load_default_config() -> Result<MenuLayout> {
+    let conf = include_str!("default.toml");
+    Ok(toml::from_str(conf)?)
+}
+
 fn main() {
-    let config_path = PathBuf::from("./smenu.toml");
+    let config_path = PathBuf::from("/etc/smenu.toml");
     log_debug(format!("Loading config from {}", config_path.display()));
-    let menu_layout = load_config(&config_path).unwrap();
+    //let menu_layout = load_config(&config_path).unwrap_or(load_default_config().unwrap());
+    let menu_layout = match load_config(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            log_rust_error(&*e, "Failed to load config", LogPriority::Error);
+            load_default_config().unwrap()
+        },
+    };
 
     let (entries, layout) = menu_layout.mk_sgui_layout();
     log_debug("Smenu starting up");

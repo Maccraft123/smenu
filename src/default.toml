@@ -1,0 +1,55 @@
+[[item]]
+name = "Toggle SSH"
+category = "Tools"
+uses_wayland = false
+executable = "/smenu/toggle_ssh"
+args = []
+env = []
+
+[[item]]
+name = "Power Off"
+category = "Tools"
+uses_wayland = false
+executable = "/sbin/poweroff"
+args = []
+env = []
+
+[[item]]
+name = "Htop"
+category = "Tools"
+uses_wayland = false
+executable = "/usr/bin/htop"
+args = []
+env = []
+
+[[item]]
+name = "Open shell"
+category = "Tools"
+uses_wayland = false
+executable = "/usr/bin/ash"
+args = []
+env = []
+
+[[item]]
+name = "Launch kmscube"
+category = "Tools"
+uses_wayland = false
+executable = "/usr/bin/kmscube"
+args = []
+env = []
+
+[[emulator]]
+executable = "/usr/bin/mednafen"
+args = []
+env = []
+systems = ["NES", "SNES"]
+
+[[system]]
+name = "NES"
+rom_directory = "/data/roms/NES"
+file_extensions = ["nes"]
+
+[[system]]
+name = "SNES"
+rom_directory = "/data/roms/SNES"
+file_extensions = ["smc", "sfc"]
