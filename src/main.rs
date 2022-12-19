@@ -209,6 +209,11 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
         } else {
             log_info("Detected XDG_RUNTIME_DIR env var present, /not/ setting it");
         }
+        if env::var("WAYLAND_DISPLAY").is_err() {
+            envs.push(("WAYLAND_DISPLAY".to_string(), "wayland-1".to_string()));
+        } else {
+            log_info("Detected WAYLAND_DISPLAY env var present, /not/ setting it");
+        }
     } else {
         switch_tty(3, true).context("Failed to switch to tty3")?;
         stdin = File::open("/dev/tty3").context("Failed to open tty3 for reading")?.into();
@@ -219,7 +224,7 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
 
     let mut child = Command::new(&e.executable)
         .args(&e.args)
-        .envs(e.env.clone())
+        .envs(envs)
         .stdin(stdin)
         .stdout(stdout)
         .stderr(stderr)
