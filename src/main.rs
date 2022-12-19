@@ -10,7 +10,7 @@ use serde::{Serialize, Deserialize};
 use anyhow::{anyhow, Result, Context};
 use std::{
     env,
-    process::{Command, Stdio},
+    process::{Command, Child, Stdio},
     fs::{self, File, OpenOptions},
     thread,
     io::{
@@ -26,6 +26,10 @@ use std::{
 };
 
 use libdogd::{log_debug, log_info, log_error, log_critical, LogPriority, post_log, log_rust_error};
+
+static SMENU_TTY: i32 = 1;
+static WESTON_TTY: i32 = 2;
+static TERMINAL_TTY: i32 = 3;
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Category {
@@ -193,45 +197,10 @@ fn push2dogd(stream: impl Read, name: String, priority: LogPriority) {
     }
 }
 
-fn run_entry(e: &MenuEntry) -> Result<()> {
-    log_debug(format!("Running {}", &e.name));
-    let mut envs = e.env.clone();
-    let stdin;
-    let stdout;
-    let stderr;
-    if e.uses_wayland {
-        switch_tty(2, false).context("Failed switch to tty2")?;
-        stdin = Stdio::null();
-        stdout = Stdio::piped();
-        stderr = Stdio::piped();
-        if env::var("XDG_RUNTIME_DIR").is_err() {
-            envs.push(("XDG_RUNTIME_DIR".to_string(), "/xdg".to_string()));
-        } else {
-            log_info("Detected XDG_RUNTIME_DIR env var present, /not/ setting it");
-        }
-        if env::var("WAYLAND_DISPLAY").is_err() {
-            envs.push(("WAYLAND_DISPLAY".to_string(), "wayland-1".to_string()));
-        } else {
-            log_info("Detected WAYLAND_DISPLAY env var present, /not/ setting it");
-        }
-    } else {
-        switch_tty(3, true).context("Failed to switch to tty3")?;
-        stdin = File::open("/dev/tty3").context("Failed to open tty3 for reading")?.into();
-        stdout = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
-        stderr = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
-        envs.push(("TERM".to_string(), "linux".to_string()));
-    }
-
-    let mut child = Command::new(&e.executable)
-        .args(&e.args)
-        .envs(envs)
-        .stdin(stdin)
-        .stdout(stdout)
-        .stderr(stderr)
-        .spawn()
-        .context("Failed to spawn the program")?;
-
-    let name = e.executable.into_iter().last().unwrap().to_string_lossy().to_string();
+fn run_with_dogd(program: &mut Command) -> Result<Child> {
+    let name = program.get_program().to_string_lossy().to_string();
+    log_debug(format!("Starting {}", &name));
+    let mut child = program.spawn()?;
 
     if let Some(child_stdout) = child.stdout.take() {
         let name = name.clone();
@@ -246,7 +215,77 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
     } else {
         log_error("Failed to get stderr handle, logs are incomplete");
     }
-    
+    Ok(child)
+}
+
+fn run_entry(e: &MenuEntry) -> Result<()> {
+    log_debug(format!("Running {}", &e.name));
+    let mut extra_env = e.env.clone();
+    let mut weston_child;
+    let stdin;
+    let stdout;
+    let stderr;
+
+    if e.uses_wayland {
+        switch_tty(WESTON_TTY, false).context("Failed switch to tty2")?;
+        stdin = Stdio::null();
+        stdout = Stdio::piped();
+        stderr = Stdio::piped();
+        let weston_socket = "smenu-weston";
+        let weston_socket_path: PathBuf;
+        // extend lifetime of those strings
+        let tty = format!("--tty={}", WESTON_TTY);
+        let weston_socket_arg = format!("-S{}", weston_socket);
+        let mut weston_args = vec!["--shell=kiosk-shell.so", "--config=/etc/weston.ini", &weston_socket_arg];
+
+        match env::var("XDG_RUNTIME_DIR") {
+            Err(_) => {
+                extra_env.push(("XDG_RUNTIME_DIR".to_string(), "/xdg".to_string()));
+                weston_args.extend_from_slice(&["--seat=seat0", &tty, "--continue-without-input", "--shell=kiosk-shell.so"]);
+                weston_socket_path = ["/xdg", weston_socket].iter().collect();
+            },
+            Ok(dir) => {
+                log_info("Detected XDG_RUNTIME_DIR env var present, /not/ setting it");
+                weston_socket_path = [&dir, weston_socket].iter().collect();
+            },
+        }
+        let mut tmp_weston = Command::new("/usr/bin/weston");
+        let mut weston = tmp_weston.args(weston_args)
+                                    .envs(extra_env.clone())
+                                    .stdin(Stdio::null())
+                                    .stdout(Stdio::piped())
+                                    .stderr(Stdio::piped());
+        weston_child = Some(run_with_dogd(weston).context("Failed to start weston")?);
+
+        extra_env.push(("WAYLAND_DISPLAY".to_string(), weston_socket.to_string()));
+
+        let mut attempts = 0;
+        while attempts != 25 && !weston_socket_path.exists() {
+            attempts += 1;
+            log_debug(format!("Attempt {} on waiting until {} exists", attempts, weston_socket_path.display()));
+            thread::sleep(std::time::Duration::from_millis(100));
+        }
+    } else {
+        switch_tty(TERMINAL_TTY, true).context("Failed to switch to tty3")?;
+        stdin = File::open("/dev/tty3").context("Failed to open tty3 for reading")?.into();
+        stdout = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
+        stderr = File::create("/dev/tty3").context("Failed to open tty3 for writing")?.into();
+        extra_env.push(("TERM".to_string(), "linux".to_string()));
+        weston_child = None;
+    }
+
+    let mut envs = Vec::new();
+    envs.extend_from_slice(&e.env);
+    envs.append(&mut extra_env);
+    let mut tmp_cmd = Command::new(&e.executable);
+    let mut cmd = tmp_cmd.args(&e.args)
+        .envs(envs)
+        .stdin(stdin)
+        .stdout(stdout)
+        .stderr(stderr);
+    let mut child = run_with_dogd(cmd).context("Failed to run the entry")?;
+
+    let name = e.executable.into_iter().last().unwrap().to_string_lossy().to_string();
     let result = child.wait().context("Failed to wait for program to exit")?;
     if let Some(code) = result.code() {
         if code != 0 {
@@ -258,7 +297,14 @@ fn run_entry(e: &MenuEntry) -> Result<()> {
         log_critical(format!("Application {} returned due to {:?}!\nCheck logs on data partition", name, Signal::try_from(sig)));
     }
 
-    switch_tty(1, false).context("Failed to switch back to tty1")?;
+    if let Some(mut weston) = weston_child {
+        if let Err(e) = weston.kill() {
+            log_rust_error(e, "Failed to kill weston", LogPriority::Critical);
+        }
+        weston.wait().context("Failed to wait for weston to exit")?;
+    }
+
+    switch_tty(SMENU_TTY, false).context("Failed to switch back to tty1")?;
     Ok(())
 }
 

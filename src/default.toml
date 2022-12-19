@@ -38,6 +38,11 @@ executable = "/usr/bin/kmscube"
 args = []
 env = []
 
+[[item]]
+name = "Weston terminal"
+category = "Tools"
+uses_wayland = true
+executable = "/usr/bin/weston-terminal"
 
 [[item]]
 name = "Weston flower demo"
